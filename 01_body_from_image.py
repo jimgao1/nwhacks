@@ -43,6 +43,8 @@ try:
     params["model_folder"] = "models/"
     params['hand'] = 1
     params['hand_net_resolution'] = '288x288'
+    params['render_pose'] = 1
+    params['hand_render'] = 1
     # params['hand_net_resolution'] = '192x192'
     # params["net_resolution"] = "640x480"
     # params["hand_detector"] = 3
@@ -93,8 +95,10 @@ try:
     cur_clicked = False
     last_frame_time = 0
     ratio = 0
+    fprop = []
 
     click_debouncer = FuckBuffer(queue_size=10)
+    drag_debouncer = FuckBuffer(queue_size=20)
     motion_x = [FuckBuffer(queue_size=10, gamma=0.05), FuckBuffer(queue_size=10, gamma=0.05)]
     motion_y = [FuckBuffer(queue_size=10, gamma=0.05), FuckBuffer(queue_size=10, gamma=0.05)]
 
@@ -134,6 +138,15 @@ try:
         cv2.putText(model_img, "prop = %.3f (%s)" % (ratio, reason),
                     (10, 60), cv2.FONT_HERSHEY_DUPLEX, 0.75, (0, 255, 255))
 
+        # cv2.putText(model_img, "fprop = " + str(["%.1f" % x for x in fprop]),
+        #             (10, 90), cv2.FONT_HERSHEY_DUPLEX, 0.75, (0, 255, 255))
+
+        if len(fprop):
+            extend_count = sum([ fprop[i] > 1.9 for i in [1, 2, 3]])
+            drag_debouncer.append(extend_count)
+            cv2.putText(model_img, "%s (%d)" % ("dragging" if drag_debouncer.wavg() > 1.5 else "not dragging", extend_count),
+                        (10, 90), cv2.FONT_HERSHEY_DUPLEX, 0.75, (0, 255, 255))
+
         last_frame_time = start_time
 
         # for point in datum.poseKeypoints
@@ -170,12 +183,17 @@ try:
                         #
                         #     clicked = d2/d1 < 0.6
 
+                        # click
                         if all([i in finger_pos for i in [0, 4, 8, 12, 16, 20]]):
                             other_fingers = sum([dist(finger_pos[0], finger_pos[i]) for i in [4, 12, 16, 20]]) / 4.0
                             index_finger = dist(finger_pos[0], finger_pos[8])
 
                             ratio = (index_finger - other_fingers) / other_fingers
                             cur_clicked = ratio > 0.7
+
+                            if all([i in finger_pos for i in [0, 1, 5, 9, 13, 17]]):
+                                fprop = [ dist(finger_pos[i+3], finger_pos[0]) / dist(finger_pos[i], finger_pos[0])
+                                          for i in [1, 5, 9, 13, 17] ]
 
 
                         # make right-index a special point

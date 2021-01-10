@@ -7,7 +7,9 @@ import time
 from sys import platform
 import argparse
 import numpy as np
+import collections
 
+from fuckbuffer import FuckBuffer
 
 draw_color = [(0, 255, 0), (69,69,69)]
 
@@ -40,7 +42,9 @@ try:
     params = dict()
     params["model_folder"] = "models/"
     params['hand'] = 1
-    # params["net_resolution"] = "160x80"
+    # params["net_resolution"] = "640x480"
+    # params["hand_detector"] = 3
+    # params["body"] = 0
 
     # Add others in path?
     for i in range(0, len(args[1])):
@@ -83,8 +87,13 @@ try:
 
     previous_point = dict()
 
+    cur_clicked = False
     last_frame_time = 0
     ratio = 0
+
+    click_debouncer = FuckBuffer(queue_size=10)
+    motion_x = [FuckBuffer(queue_size=10, gamma=0.05), FuckBuffer(queue_size=10, gamma=0.05)]
+    motion_y = [FuckBuffer(queue_size=10, gamma=0.05), FuckBuffer(queue_size=10, gamma=0.05)]
 
     while True:
         # Process Image
@@ -103,7 +112,20 @@ try:
 
         cv2.putText(model_img, "%.2f fps" % (1000 / (start_time-last_frame_time)),
                     (10, 30), cv2.FONT_HERSHEY_DUPLEX, 0.75, (0, 255, 0))
-        cv2.putText(model_img, "prop = %.3f" % ratio,
+
+        if cur_clicked:
+            reason = "clicked"
+        elif not all([i in finger_pos for i in [0, 4, 8, 12, 16, 20]]):
+            reason = "insufficient"
+        else:
+            reason = "released"
+
+        if click_debouncer.count:
+            reason += "(%d)" % int(click_debouncer.avg())
+
+        click_debouncer.append(cur_clicked)
+
+        cv2.putText(model_img, "prop = %.3f (%s)" % (ratio, reason),
                     (10, 60), cv2.FONT_HERSHEY_DUPLEX, 0.75, (0, 0, 255))
 
         last_frame_time = start_time
@@ -113,8 +135,7 @@ try:
             for person_id, person in enumerate(datum.poseKeypoints):
                 for point_id, point in enumerate(person):
                     if point[0] == 0.0 and point[1] == 0.0: continue
-                    model_img = \
-                        cv2.putText(model_img, "%d" % point_id,
+                    model_img = cv2.putText(model_img, "%d" % point_id,
                                     (point[0], point[1]), cv2.FONT_HERSHEY_DUPLEX, 0.5, (0, 0, 255))
 
         if datum.handKeypoints is not None:
@@ -136,7 +157,7 @@ try:
                         if hand_id == 1:
                             finger_pos[point_id] = (point[0], point[1])
 
-                        clicked = False
+                        cur_clicked = False
                         # if 5 in finger_pos and 7 in finger_pos and 8 in finger_pos:
                         #     d1 = dist(finger_pos[5], finger_pos[8])
                         #     d2 = dist(finger_pos[7], finger_pos[8])
@@ -148,25 +169,40 @@ try:
                             index_finger = dist(finger_pos[0], finger_pos[8])
 
                             ratio = (index_finger - other_fingers) / other_fingers
-                            clicked = ratio > 0.7
+                            cur_clicked = ratio > 0.7
 
 
                         # make right-index a special point
                         if draw_pointer and point_id == 8:
                             model_img = cv2.circle(model_img, (point[0], point[1]), 20,
-                                                   (0, 0, 255) if clicked else (255, 255, 255),
+                                                   (0, 0, 255) if cur_clicked else (255, 255, 255),
                                                    4)
+                            # draw smoothed point
+                            model_img = cv2.circle(model_img, (int(motion_x[hand_id].wavg()), int(motion_y[hand_id].wavg())), 20,
+                                                   (0, 0, 127) if cur_clicked else (127, 127, 127),
+                                                   3)
 
                         if point_id == 8:
-                            if clicked:
+                            motion_x[hand_id].append(point[0])
+                            motion_y[hand_id].append(point[1])
+                            smoothed = (int(motion_x[hand_id].wavg()), int(motion_y[hand_id].wavg()))
+
+                            if cur_clicked or click_debouncer.avg() >= 2.0:
                                 model_img = cv2.circle(model_img, (point[0], point[1]), 2, hand_colors[hand_id], 2)
                                 imageToProcess = cv2.circle(imageToProcess, (point[0], point[1]), 2, hand_colors[hand_id], 2)
                                 cancer[hand_id] = cv2.circle(cancer[hand_id], (point[0], point[1]), 2, (255,), 2)
 
-                                if hand_id in previous_point:
-                                    cancer[hand_id] = cv2.line(cancer[hand_id], previous_point[hand_id], (point[0], point[1]), (255, ), 2)
 
-                            previous_point[hand_id] = (point[0], point[1])
+                                if hand_id in previous_point:
+                                    cancer[hand_id] = cv2.line(cancer[hand_id], previous_point[hand_id], smoothed,
+                                                               (255, ), 2)
+
+                            # clear motion smoothing buffer on release
+                            # if click_debouncer.avg() < 2.0:
+                            #     motion_x.clear()
+                            #     motion_y.clear()
+
+                            previous_point[hand_id] = smoothed
 
 
                             # imageToProcess = np.where(canvas < 255.0, imageToProcess, canvas)
@@ -178,9 +214,6 @@ try:
         combined = imageToProcess - cv2.bitwise_and(imageToProcess, imageToProcess, mask=cv2.bitwise_or(cancer[0], cancer[1]))
         combined = combined + combined_cancer
         combined = np.clip(combined, 0, 255).astype('uint8')
-
-
-        print("combined shape", combined.shape)
 
         cv2.imshow("frame", cv2.flip(combined, 1))
         cv2.imshow("output", model_img)

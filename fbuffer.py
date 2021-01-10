@@ -1,7 +1,7 @@
 
 import collections
 
-class FuckBuffer:
+class FBuffer:
     def __init__(self, queue_size=10, gamma=0.5):
         self.count = 0
         self.queue_size = queue_size

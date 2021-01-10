@@ -9,48 +9,10 @@ import argparse
 import numpy as np
 import collections
 
-class FuckBuffer:
-    def __init__(self, queue_size=10, gamma=0.5):
-        self.count = 0
-        self.queue_size = queue_size
-        self.gamma = gamma
-        self.sum = 0.0
-        self.wsum = 0.0
-        self.c = collections.deque()
+from fbuffer import FBuffer
 
-    def append(self, e):
-        e = float(e)
-
-        self.c.append(e)
-        self.count += 1
-        self.sum += e
-        self.wsum = self.gamma * self.wsum + e
-
-        if self.count > self.queue_size:
-            val = self.c.popleft()
-            self.sum -= val
-            self.wsum -= val * self.gamma**(self.count+1)
-            self.count -= 1
-
-    def pop(self):
-        self.count -= 1
-        self.sum -= self.c.popleft()
-
-    def avg(self):
-        return self.sum / self.count
-
-    def wavg(self):
-        # if self.count:
-        #     return self.wsum ** (1/self.count)
-        total_weight = (1 - self.gamma ** (self.count + 1)) / (1 - self.gamma)
-        return self.wsum / total_weight
-
-    def clear(self):
-        self.count = 0
-        self.wsum = self.sum = 0.0
-        self.c.clear()
-
-draw_color = [(0, 255, 0), (69,69,69)]
+draw_color = [(0, 255, 0), (69,69,69)][::-1]
+enabled = True
 
 def dist(p1, p2):
     dx = p1[0] - p2[0]
@@ -75,6 +37,7 @@ try:
     parser.add_argument("--image_path", default="../examples/media/COCO_val2014_000000000192.jpg",
                         help="Process an image. Read all standard formats (jpg, png, bmp, etc.).")
     args = parser.parse_known_args()
+
     # Custom Params (refer to include/openpose/flags.hpp for more parameters)
     params = dict()
     params["model_folder"] = "models/"
@@ -140,13 +103,13 @@ try:
     cur_dragging = False
     last_drag_pos = None
 
-    click_debouncer = FuckBuffer(queue_size=10)
-    drag_debouncer = FuckBuffer(queue_size=20)
-    motion_x = [FuckBuffer(queue_size=10, gamma=0.05), FuckBuffer(queue_size=10, gamma=0.05)]
-    motion_y = [FuckBuffer(queue_size=10, gamma=0.05), FuckBuffer(queue_size=10, gamma=0.05)]
+    click_debouncer = FBuffer(queue_size=5)
+    drag_debouncer = FBuffer(queue_size=20)
+    motion_x = [FBuffer(queue_size=10, gamma=0.05), FBuffer(queue_size=10, gamma=0.05)]
+    motion_y = [FBuffer(queue_size=10, gamma=0.05), FBuffer(queue_size=10, gamma=0.05)]
 
-    arm_x = FuckBuffer(queue_size=5, gamma=0.05)
-    arm_y = FuckBuffer(queue_size=5, gamma=0.05)
+    arm_x = FBuffer(queue_size=5, gamma=0.05)
+    arm_y = FBuffer(queue_size=5, gamma=0.05)
 
     while True:
         # Process Image
@@ -203,6 +166,10 @@ try:
 
                 canvas_view_corner[0] -= pos_diff[0]
                 canvas_view_corner[1] -= pos_diff[1]
+
+                canvas_view_corner[0] = max(0, min(canvas_view_corner[0], width))
+                canvas_view_corner[1] = max(0, min(canvas_view_corner[1], height))
+
 
             last_drag_pos = cur_pos
             cur_dragging = dragging
@@ -277,7 +244,7 @@ try:
                             motion_y[hand_id].append(point[1])
                             smoothed = (int(motion_x[hand_id].wavg()), int(motion_y[hand_id].wavg()))
 
-                            if not cur_dragging and (cur_clicked or click_debouncer.avg() >= 1.0):
+                            if not cur_dragging and (cur_clicked and click_debouncer.avg() >= 1.0):
                                 model_img = cv2.circle(model_img, (point[0], point[1]), 2, hand_colors[hand_id], 2)
                                 # imageToProcess = cv2.circle(imageToProcess, (point[0], point[1]), 2, hand_colors[hand_id], 2)
 
@@ -313,7 +280,16 @@ try:
         combined = combined + combined_cancer
         combined = np.clip(combined, 0, 255).astype('uint8')
 
-        cv2.imshow("frame", cv2.flip(combined, 1))
+        # cv2.imshow("frame", cv2.resize(cv2.flip(combined, 1), None, fx=2.5, fy=2.5))
+        combined = cv2.flip(combined, 1)
+        if enabled and cur_dragging:
+            combined = cv2.putText(combined, "DRAGGING",
+                        (5, 30), cv2.FONT_HERSHEY_DUPLEX, 0.75, (0, 0, 200))
+        elif enabled and (cur_clicked or click_debouncer.wavg() > 1.0):
+            combined = cv2.putText(combined, "DRAWING",
+                                   (5, 30), cv2.FONT_HERSHEY_DUPLEX, 0.75, (0, 200, 0))
+
+        cv2.imshow("frame", combined)
         cv2.imshow("output", model_img)
         cv2.imshow("canvas", cv2.flip(combined_cancer, 1))
         # cv2.imshow("c0", cancer[0])
@@ -331,5 +307,7 @@ try:
         if key == ord('k'): canvas_view_corner[0] -= 10
         if key == ord('h'): canvas_view_corner[1] -= 10
         if key == ord('l'): canvas_view_corner[1] += 10
+
+        if key == ord('t'): enabled = not enabled
 except Exception as e:
     raise e

@@ -49,6 +49,7 @@ try:
     opWrapper.configure(params)
     opWrapper.start()
 
+
     datum = op.Datum()
 
     cap = cv2.VideoCapture(0)
@@ -64,7 +65,7 @@ try:
         opWrapper.emplaceAndPop(op.VectorDatum([datum]))
         end_time = int(round(time.time() * 1000))
 
-        print("frame time", end_time-start_time)
+        print(start_time, end_time, end_time-start_time)
         # Display Image
         print("Body keypoints: \n" + str(datum.poseKeypoints))
         cv2.imshow("OpenPose 1.7.0 - Tutorial Python API", datum.cvOutputData)

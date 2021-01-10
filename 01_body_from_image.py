@@ -68,6 +68,8 @@ try:
     datum = op.Datum()
 
     cap = cv2.VideoCapture(0)
+    # cap = cv2.VideoCapture("http://192.168.2.14:8080/playlist.m3u")
+    # cap = cv2.VideoCapture("rtsp://192.168.2.14:5554/out.h264")
 
     draw_pose_ids = False
     draw_hand_ids = False
@@ -82,6 +84,7 @@ try:
     previous_point = dict()
 
     last_frame_time = 0
+    ratio = 0
 
     while True:
         # Process Image
@@ -100,6 +103,9 @@ try:
 
         cv2.putText(model_img, "%.2f fps" % (1000 / (start_time-last_frame_time)),
                     (10, 30), cv2.FONT_HERSHEY_DUPLEX, 0.75, (0, 255, 0))
+        cv2.putText(model_img, "prop = %.3f" % ratio,
+                    (10, 60), cv2.FONT_HERSHEY_DUPLEX, 0.75, (0, 0, 255))
+
         last_frame_time = start_time
 
         # for point in datum.poseKeypoints
@@ -127,16 +133,23 @@ try:
                                                     (point[0], point[1]), cv2.FONT_HERSHEY_DUPLEX,
                                                     0.5, hand_colors[hand_id])
 
-                        if hand_id == 1 and 5 <= point_id <= 8:
+                        if hand_id == 1:
                             finger_pos[point_id] = (point[0], point[1])
 
                         clicked = False
-                        if 5 in finger_pos and 7 in finger_pos and 8 in finger_pos:
-                            d1 = dist(finger_pos[5], finger_pos[8])
-                            d2 = dist(finger_pos[7], finger_pos[8])
-                            print(d1, d2, d2/d1)
+                        # if 5 in finger_pos and 7 in finger_pos and 8 in finger_pos:
+                        #     d1 = dist(finger_pos[5], finger_pos[8])
+                        #     d2 = dist(finger_pos[7], finger_pos[8])
+                        #
+                        #     clicked = d2/d1 < 0.6
 
-                            clicked = d2/d1 < 1.2
+                        if all([i in finger_pos for i in [0, 4, 8, 12, 16, 20]]):
+                            other_fingers = sum([dist(finger_pos[0], finger_pos[i]) for i in [4, 12, 16, 20]]) / 4.0
+                            index_finger = dist(finger_pos[0], finger_pos[8])
+
+                            ratio = (index_finger - other_fingers) / other_fingers
+                            clicked = ratio > 0.7
+
 
                         # make right-index a special point
                         if draw_pointer and point_id == 8:

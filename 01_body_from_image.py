@@ -79,7 +79,7 @@ try:
     # cap = cv2.VideoCapture("http://192.168.2.14:8080/playlist.m3u")
     # cap = cv2.VideoCapture("rtsp://192.168.2.14:5554/out.h264")
 
-    draw_pose_ids = False
+    draw_pose_ids = True
     draw_hand_ids = False
     draw_pointer = True
 
@@ -99,10 +99,16 @@ try:
     ratio = 0
     fprop = []
 
+    cur_dragging = False
+    last_drag_pos = None
+
     click_debouncer = FuckBuffer(queue_size=10)
     drag_debouncer = FuckBuffer(queue_size=20)
     motion_x = [FuckBuffer(queue_size=10, gamma=0.05), FuckBuffer(queue_size=10, gamma=0.05)]
     motion_y = [FuckBuffer(queue_size=10, gamma=0.05), FuckBuffer(queue_size=10, gamma=0.05)]
+
+    arm_x = FuckBuffer(queue_size=5, gamma=0.05)
+    arm_y = FuckBuffer(queue_size=5, gamma=0.05)
 
     while True:
         # Process Image
@@ -149,6 +155,20 @@ try:
             cv2.putText(model_img, "%s (%d)" % ("dragging" if drag_debouncer.wavg() > 1.5 else "not dragging", extend_count),
                         (10, 90), cv2.FONT_HERSHEY_DUPLEX, 0.75, (0, 255, 255))
 
+            dragging = drag_debouncer.wavg() > 1.5
+
+            cur_pos = np.array((int(arm_x.wavg()), int(arm_y.wavg())))
+
+            if cur_dragging and dragging:
+                pos_diff = cur_pos - last_drag_pos
+                # canvas_view_corner += pos_diff
+
+                canvas_view_corner[0] -= pos_diff[0]
+                canvas_view_corner[1] -= pos_diff[1]
+
+            last_drag_pos = cur_pos
+            cur_dragging = dragging
+
         last_frame_time = start_time
 
         # for point in datum.poseKeypoints
@@ -156,6 +176,11 @@ try:
             for person_id, person in enumerate(datum.poseKeypoints):
                 for point_id, point in enumerate(person):
                     if point[0] == 0.0 and point[1] == 0.0: continue
+
+                    if point_id == 4:
+                        arm_x.append(point[0])
+                        arm_y.append(point[1])
+
                     model_img = cv2.putText(model_img, "%d" % point_id,
                                     (point[0], point[1]),
                                     cv2.FONT_HERSHEY_DUPLEX, 0.5, (0, 0, 255))
@@ -214,14 +239,12 @@ try:
                             motion_y[hand_id].append(point[1])
                             smoothed = (int(motion_x[hand_id].wavg()), int(motion_y[hand_id].wavg()))
 
-                            if cur_clicked or click_debouncer.avg() >= 1.0:
+                            if not cur_dragging and (cur_clicked or click_debouncer.avg() >= 1.0):
                                 model_img = cv2.circle(model_img, (point[0], point[1]), 2, hand_colors[hand_id], 2)
                                 # imageToProcess = cv2.circle(imageToProcess, (point[0], point[1]), 2, hand_colors[hand_id], 2)
 
                                 cancer[hand_id] = cv2.circle(cancer[hand_id],
                                                              tuple(np.array((point[0], point[1]), dtype=np.int32) + canvas_view_corner), 2, (255,), 2)
-
-
 
                                 if hand_id in previous_point:
                                     cancer[hand_id] = cv2.line(cancer[hand_id], tuple(previous_point[hand_id] + canvas_view_corner),

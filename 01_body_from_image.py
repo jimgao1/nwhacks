@@ -42,6 +42,8 @@ try:
     params = dict()
     params["model_folder"] = "models/"
     params['hand'] = 1
+    params['hand_net_resolution'] = '288x288'
+    # params['hand_net_resolution'] = '192x192'
     # params["net_resolution"] = "640x480"
     # params["hand_detector"] = 3
     # params["body"] = 0
@@ -72,6 +74,7 @@ try:
     datum = op.Datum()
 
     cap = cv2.VideoCapture(0)
+    # cap = cv2.VideoCapture("C:/Users/Jim/Desktop/test.mp4")
     # cap = cv2.VideoCapture("http://192.168.2.14:8080/playlist.m3u")
     # cap = cv2.VideoCapture("rtsp://192.168.2.14:5554/out.h264")
 
@@ -98,8 +101,11 @@ try:
     while True:
         # Process Image
         ret, imageToProcess = cap.read()
-
         if not ret: print("Failed to capture image")
+
+        print(imageToProcess.shape)
+
+        imageToProcess = cv2.resize(imageToProcess, (640, 480))
 
         # imageToProcess = cv2.imread(args[0].image_path)
         datum.cvInputData = imageToProcess
@@ -126,7 +132,7 @@ try:
         click_debouncer.append(cur_clicked)
 
         cv2.putText(model_img, "prop = %.3f (%s)" % (ratio, reason),
-                    (10, 60), cv2.FONT_HERSHEY_DUPLEX, 0.75, (0, 0, 255))
+                    (10, 60), cv2.FONT_HERSHEY_DUPLEX, 0.75, (0, 255, 255))
 
         last_frame_time = start_time
 
@@ -187,7 +193,7 @@ try:
                             motion_y[hand_id].append(point[1])
                             smoothed = (int(motion_x[hand_id].wavg()), int(motion_y[hand_id].wavg()))
 
-                            if cur_clicked or click_debouncer.avg() >= 2.0:
+                            if cur_clicked or click_debouncer.avg() >= 1.0:
                                 model_img = cv2.circle(model_img, (point[0], point[1]), 2, hand_colors[hand_id], 2)
                                 imageToProcess = cv2.circle(imageToProcess, (point[0], point[1]), 2, hand_colors[hand_id], 2)
                                 cancer[hand_id] = cv2.circle(cancer[hand_id], (point[0], point[1]), 2, (255,), 2)
